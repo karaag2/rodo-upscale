@@ -1,0 +1,153 @@
+# Builds the Windows installer (NSIS .exe) of Rodo Upscale.
+# - every push to main and manual runs: installer uploaded as a workflow artifact
+# - tags v*: same, plus a GitHub Release « Rodo Upscale vX.Y.Z » with the installer attached
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  # never cancel a release build half way
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: Build installer
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      installer: ${{ steps.installer.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read app version
+        id: version
+        shell: pwsh
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content -Raw src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($env:REF_TYPE -eq 'tag' -and $env:REF_NAME -ne "v$version") {
+            Write-Host "::error::Tag $env:REF_NAME does not match the version in src-tauri/tauri.conf.json (v$version)"
+            exit 1
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.9.0
+
+      - name: Set up Node (LTS)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Set up Rust (stable)
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc -vV
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch Real-ESRGAN engine and models
+        shell: pwsh
+        run: ./scripts/fetch-engine.ps1
+
+      - name: Build NSIS installer
+        run: pnpm tauri build --bundles nsis
+
+      - name: Locate installer
+        id: installer
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $found = @(Get-ChildItem src-tauri/target/release/bundle/nsis -Filter '*-setup.exe')
+          if ($found.Count -ne 1) { Write-Host "::error::expected one NSIS installer, found $($found.Count)"; exit 1 }
+          # A name without spaces: GitHub turns spaces into dots in release asset names.
+          $name = "Rodo-Upscale-$env:VERSION-installer.exe"
+          New-Item -ItemType Directory -Force -Path dist-installer | Out-Null
+          Copy-Item $found[0].FullName "dist-installer/$name"
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "path=dist-installer/$name" >> $env:GITHUB_OUTPUT
+          Write-Host "Installer: $name ($([math]::Round($found[0].Length / 1MB, 1)) MB)"
+
+      - name: Smoke test the installed app
+        shell: pwsh
+        env:
+          INSTALLER: ${{ steps.installer.outputs.path }}
+        run: ./scripts/smoke-windows.ps1 -Installer $env:INSTALLER
+
+      - name: Upload installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rodo-upscale-windows-installer
+          path: ${{ steps.installer.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rodo-upscale-windows-installer
+          path: release
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          INSTALLER_NAME: ${{ needs.build.outputs.installer }}
+        run: |
+          cat > notes.md <<EOF
+          ## Installer Rodo Upscale sur Windows
+
+          1. Télécharge **${INSTALLER_NAME}** ci-dessous (dans « Assets »).
+          2. Double-clique dessus. Si Windows affiche « Windows a protégé votre ordinateur »,
+             clique sur **Informations complémentaires** puis **Exécuter quand même**
+             (l'application n'est pas signée, c'est normal).
+          3. Lance **Rodo Upscale** depuis le menu Démarrer, choisis un dossier d'images, c'est parti.
+
+          Les images agrandies sont rangées dans un nouveau dossier à côté de l'original ;
+          les originaux ne sont jamais modifiés. Tout se passe sur le PC, sans Internet.
+
+          Si rien ne se passe pendant l'agrandissement, mets à jour le pilote de ta carte graphique
+          (Intel, AMD ou NVIDIA) : le moteur Real-ESRGAN utilise Vulkan.
+          EOF
+          INSTALLER="release/$INSTALLER_NAME"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$INSTALLER" --clobber
+          else
+            gh release create "$TAG" "$INSTALLER" --verify-tag \
+              --title "Rodo Upscale $TAG" --notes-file notes.md
+          fi

@@ -4,10 +4,98 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rodo Upscale</title>
-    <link rel="stylesheet" href="/src/styles.css" />
-    <script type="module" src="/src/main.ts" defer></script>
+    <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <div id="app"></div>
+    <aside>
+      <div class="brand"><div class="logo" aria-hidden="true">R</div><h1>Rodo <span>Upscale</span></h1></div>
+
+      <div class="field">
+        <div class="label" id="l-folder">Dossier d'images</div>
+        <button type="button" class="folder" id="folder" aria-labelledby="l-folder fname">
+          <span class="ic" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          <span class="folder-text"><b id="fname">Choisir un dossier…</b><small class="mono" id="fcount">ou glisse-le à droite</small></span>
+        </button>
+      </div>
+
+      <div class="field">
+        <div class="label" id="l-kind">Type d'image</div>
+        <div class="seg" role="group" aria-labelledby="l-kind" data-key="kind">
+          <button type="button" data-v="photo">Photo</button><button type="button" data-v="drawing">Dessin</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="label" id="l-scale">Agrandir</div>
+        <div class="seg" role="group" aria-labelledby="l-scale" data-key="scale">
+          <button type="button" data-v="2">×2</button><button type="button" data-v="4">×4</button>
+        </div>
+        <div class="hint mono" id="scaleHint">Chaque côté ×4</div>
+      </div>
+
+      <div class="field">
+        <div class="label" id="l-format">Format</div>
+        <div class="seg" role="group" aria-labelledby="l-format" data-key="format">
+          <button type="button" data-v="jpg">JPG</button><button type="button" data-v="png">PNG</button>
+        </div>
+        <div class="hint opt">JPG : léger. PNG : qualité maximale, fichiers lourds.</div>
+      </div>
+
+      <div class="field">
+        <div class="label" id="l-speed">Vitesse</div>
+        <div class="seg" role="group" aria-labelledby="l-speed" data-key="speed">
+          <button type="button" data-v="quality">Qualité</button><button type="button" data-v="fast" title="Environ 4 fois plus vite, un peu moins net.">Rapide</button>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="estimate" id="estimate" hidden>
+        <div><small>Durée estimée</small><b class="mono" id="estTime"></b></div>
+        <div><small>Taille finale</small><b class="mono" id="estSize"></b></div>
+      </div>
+      <button type="button" class="go" id="go" disabled>Lancer</button>
+    </aside>
+
+    <main>
+      <div class="stage" id="stage">
+        <div class="compare" id="cmp" hidden>
+          <img class="before" id="imgBefore" alt="" draggable="false" />
+          <img class="after" id="imgAfter" alt="" draggable="false" />
+          <div class="handle" id="handle" role="slider" tabindex="0" aria-label="Comparer avant et après"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="50 % avant"><i aria-hidden="true">‹›</i></div>
+          <span class="tag l">Avant</span><span class="tag r" id="tagAfter">Après ×4</span>
+          <span class="meta mono" id="cur"></span>
+        </div>
+        <div class="preview" id="preview" hidden>
+          <img id="imgPreview" alt="" draggable="false" />
+          <span class="tag l">Aperçu</span>
+          <span class="meta mono" id="previewName"></span>
+        </div>
+        <div class="empty" id="empty">
+          <h2 id="emptyTitle">Glisse un dossier d'images ici.</h2>
+          <p>Rodo Upscale agrandit toutes les images du dossier, une par une, directement sur ton PC. Tes originaux ne sont pas modifiés.</p>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p class="alert" id="alert" role="alert" hidden></p>
+        <p class="note" id="note" hidden></p>
+        <div id="prog" hidden>
+          <div class="row">
+            <div class="count mono"><span id="n">0</span><small id="total"> / 0</small></div>
+            <div class="eta mono" id="eta" aria-live="polite"></div>
+          </div>
+          <div class="bar" role="progressbar" aria-label="Avancement" aria-valuemin="0" aria-valuemax="100" id="bar"><i id="barFill"></i></div>
+          <div class="resume mono" id="resume" hidden></div>
+        </div>
+        <div class="strip" id="strip" hidden></div>
+        <div class="done" id="done" hidden>
+          <span id="doneText"></span>
+          <span class="spacer"></span>
+          <button type="button" class="ghost" id="openDir">Ouvrir le dossier</button>
+        </div>
+      </div>
+    </main>
   </body>
 </html>

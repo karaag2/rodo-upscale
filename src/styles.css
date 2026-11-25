@@ -1,2 +1,165 @@
-/* Placeholder: replaced by the interface session (styles come from docs/maquette). */
-body { margin: 0; background: #0e0d0c; color: #ede8e1; }
+/* Port of docs/maquette/index.html. Same tokens, same spacing scale. */
+:root {
+  --bg: #0e0d0c; --win: #151412; --panel: #1b1a17; --raise: #23211e;
+  --line: #2d2a26; --line2: #3a3631;
+  --text: #ede8e1; --mute: #9c948a; --dim: #6b645c;
+  --brand: #f2662b; --brand-2: #ff8452; --on-brand: #1a0c05;
+  --ok: #7fbf8a; --err: #ec8a6c;
+  --r-ctl: 6px; --r-card: 10px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0 }
+html, body { height: 100% }
+body {
+  background: var(--win); color: var(--text);
+  font: 14px/1.45 "Bricolage Grotesque Variable", system-ui, sans-serif;
+  display: grid; grid-template-columns: 320px 1fr; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit }
+.mono { font-family: "IBM Plex Mono", ui-monospace, monospace }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px }
+[hidden] { display: none !important }
+
+/* settings column */
+aside {
+  border-right: 1px solid var(--line); padding: var(--s5);
+  display: flex; flex-direction: column; gap: 18px; overflow: auto; min-height: 0;
+}
+.brand { display: flex; align-items: center; gap: var(--s3) }
+.logo {
+  width: 30px; height: 30px; border-radius: var(--r-ctl); background: var(--brand);
+  display: grid; place-items: center; color: var(--on-brand); font-weight: 700; font-size: 16px;
+}
+.brand h1 { font-size: 19px; font-weight: 700; letter-spacing: -.01em }
+.brand h1 span { color: var(--brand) }
+
+.field { display: flex; flex-direction: column; gap: 6px }
+.label { font-size: 12px; color: var(--mute); display: flex; justify-content: space-between }
+.folder {
+  border: 1px dashed var(--line2); border-radius: var(--r-card); padding: var(--s3); background: none;
+  display: flex; gap: var(--s3); align-items: center; cursor: pointer; text-align: left; width: 100%;
+}
+.folder:hover:not(:disabled), .folder.drop { border-color: var(--brand) }
+.folder:disabled { cursor: default }
+.folder .ic {
+  width: 34px; height: 34px; border-radius: var(--r-ctl); background: var(--raise);
+  display: grid; place-items: center; flex: none;
+}
+.folder-text { min-width: 0 }
+.folder b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.folder small { color: var(--mute); font-size: 12px }
+
+.seg {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 3px;
+}
+.seg button { background: none; border: 0; color: var(--mute); padding: 6px 0; border-radius: 4px; cursor: pointer }
+.seg button:hover:not(:disabled) { color: var(--text) }
+.seg button[aria-pressed=true] { background: var(--raise); color: var(--text); box-shadow: inset 0 0 0 1px var(--line2) }
+.seg button:disabled { cursor: default }
+.seg button:disabled:not([aria-pressed=true]) { color: var(--dim) }
+.hint { font-size: 12px; color: var(--dim) }
+/* The window can be as short as 640 px: tighten the column instead of letting « Lancer » scroll away. */
+@media (max-height: 740px) {
+  aside { gap: 14px; padding-block: 20px }
+}
+@media (max-height: 680px) {
+  aside { gap: 10px }
+  .hint.opt { display: none }
+}
+
+.spacer { flex: 1 }
+.estimate {
+  border-top: 1px solid var(--line); padding-top: var(--s4);
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3);
+}
+.estimate div { display: flex; flex-direction: column }
+.estimate small { color: var(--mute); font-size: 12px }
+.estimate b { font-weight: 500; font-size: 15px }
+.go {
+  background: var(--brand); color: var(--on-brand); border: 0; border-radius: var(--r-ctl);
+  padding: 12px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s;
+}
+.go:hover:not(:disabled) { background: var(--brand-2) }
+.go.stop { background: var(--raise); color: var(--text); box-shadow: inset 0 0 0 1px var(--line2) }
+.go.stop:hover:not(:disabled) { background: var(--line) }
+.go:disabled { background: var(--raise); color: var(--dim); cursor: default }
+
+/* main area */
+main { display: grid; grid-template-rows: 1fr auto; min-height: 0; min-width: 0 }
+.stage {
+  position: relative; margin: var(--s5) var(--s5) 0; border: 1px solid var(--line);
+  border-radius: var(--r-card); overflow: hidden; background: #0b0a09;
+}
+.stage.drop { border-color: var(--brand) }
+.compare { position: absolute; inset: 0; cursor: ew-resize; touch-action: none; user-select: none }
+.compare img, .preview img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+}
+.compare .after { clip-path: inset(0 0 0 var(--x, 50%)) }
+.handle {
+  position: absolute; top: 0; bottom: 0; left: var(--x, 50%); width: 2px;
+  background: var(--text); transform: translateX(-1px);
+}
+.handle::after {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 30px; height: 30px;
+  transform: translate(-50%, -50%); border-radius: 50%; background: var(--text);
+}
+.handle:focus-visible { outline: none }
+.handle:focus-visible::after { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--brand) }
+.handle i {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
+  color: var(--bg); font-style: normal; font-size: 12px; font-weight: 700; letter-spacing: 2px;
+}
+.tag {
+  position: absolute; top: var(--s3); padding: 3px 8px; border-radius: 4px;
+  background: #0e0d0ccc; font-size: 12px; color: var(--mute); pointer-events: none;
+}
+.tag.l { left: var(--s3) }
+.tag.r { right: var(--s3); color: var(--text) }
+.meta {
+  position: absolute; bottom: var(--s3); left: var(--s3); font-size: 12px; color: var(--mute);
+  background: #0e0d0ccc; padding: 3px 8px; border-radius: 4px; pointer-events: none;
+  max-width: calc(100% - 2 * var(--s3)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preview { position: absolute; inset: 0 }
+
+.empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: flex-start;
+  justify-content: flex-end; padding: var(--s6); gap: var(--s2); background: var(--panel);
+}
+.empty h2 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; max-width: 16ch; line-height: 1.1 }
+.empty p { color: var(--mute); max-width: 44ch }
+
+.footer { padding: var(--s4) var(--s5) var(--s5); display: flex; flex-direction: column; gap: var(--s3) }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4) }
+.count { font-size: 22px; font-weight: 500; white-space: nowrap }
+.count small { color: var(--dim); font-size: 14px }
+.eta { color: var(--mute); font-size: 13px; text-align: right }
+.bar { height: 6px; background: var(--panel); border-radius: 3px; overflow: hidden; margin-top: var(--s3) }
+.bar i { display: block; height: 100%; width: var(--p, 0%); background: var(--brand); transition: width .25s }
+.resume { color: var(--dim); font-size: 12px; margin-top: var(--s2) }
+.strip { display: flex; gap: var(--s2); min-height: 44px }
+.strip button {
+  width: 64px; height: 44px; padding: 0; border-radius: 4px; border: 1px solid var(--line);
+  overflow: hidden; background: var(--panel); cursor: pointer; flex: none;
+}
+.strip button:hover { border-color: var(--line2) }
+.strip button.cur { border-color: var(--brand) }
+.strip img { width: 100%; height: 100%; object-fit: cover; display: block }
+.done { display: flex; align-items: center; gap: var(--s3) }
+.done .ok { color: var(--ok) }
+.done .warn { color: var(--err) }
+.note { color: var(--mute); max-width: 64ch }
+.note b { color: var(--text); font-weight: 500 }
+.alert {
+  color: var(--err); background: var(--panel); border: 1px solid var(--line2);
+  border-radius: var(--r-ctl); padding: var(--s2) var(--s3);
+}
+.ghost {
+  background: none; border: 1px solid var(--line2); color: var(--text);
+  border-radius: var(--r-ctl); padding: 8px 14px; cursor: pointer;
+}
+.ghost:hover { border-color: var(--mute) }

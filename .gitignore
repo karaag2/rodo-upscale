@@ -1,0 +1,10 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+# Real-ESRGAN engine and models: downloaded by scripts/fetch-engine.* and by CI, never committed
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/resources/models/*
+!src-tauri/resources/models/.gitkeep
+.DS_Store

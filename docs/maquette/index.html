@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Rodo Upscale · Maquette</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0e0d0c; --win:#151412; --panel:#1b1a17; --raise:#23211e;
+    --line:#2d2a26; --line2:#3a3631;
+    --text:#ede8e1; --mute:#9c948a; --dim:#6b645c;
+    --brand:#f2662b; --brand-2:#ff8452; --on-brand:#1a0c05;
+    --ok:#7fbf8a;
+    --r-ctl:6px; --r-card:10px;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.45 "Bricolage Grotesque",system-ui,sans-serif;
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:var(--s4);padding:var(--s5)}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+
+  /* demo switcher, hors de l'app */
+  .demo{display:flex;gap:var(--s2);align-items:center;color:var(--dim);font-size:12px}
+  .demo button{background:none;border:1px solid var(--line);color:var(--mute);padding:4px 10px;border-radius:var(--r-ctl);font:inherit;cursor:pointer}
+  .demo button[aria-pressed=true]{color:var(--text);border-color:var(--line2);background:var(--panel)}
+
+  /* fenêtre Windows */
+  .win{width:1120px;height:760px;background:var(--win);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+       display:grid;grid-template-rows:36px 1fr}
+  .titlebar{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-left:var(--s4);user-select:none}
+  .titlebar .t{display:flex;align-items:center;gap:var(--s2);font-size:12px;color:var(--mute)}
+  .titlebar .ctrls{display:flex;height:100%}
+  .titlebar .ctrls span{width:46px;display:grid;place-items:center;color:var(--mute);font-size:12px}
+  .titlebar .ctrls span:last-child:hover{background:#c42b1c;color:#fff}
+
+  .body{display:grid;grid-template-columns:320px 1fr;min-height:0}
+
+  /* colonne réglages */
+  aside{border-right:1px solid var(--line);padding:var(--s5) var(--s5) var(--s5);display:flex;flex-direction:column;gap:18px;overflow:auto}
+  .brand{display:flex;align-items:center;gap:var(--s3)}
+  .logo{width:30px;height:30px;border-radius:var(--r-ctl);background:var(--brand);display:grid;place-items:center;color:var(--on-brand);font-weight:700;font-size:16px}
+  .brand h1{font-size:19px;font-weight:700;letter-spacing:-.01em}
+  .brand h1 span{color:var(--brand)}
+
+  .field{display:flex;flex-direction:column;gap:6px}
+  .label{font-size:12px;color:var(--mute);display:flex;justify-content:space-between}
+  .folder{border:1px dashed var(--line2);border-radius:var(--r-card);padding:var(--s3);display:flex;gap:var(--s3);align-items:center;cursor:pointer}
+  .folder:hover{border-color:var(--brand)}
+  .folder .ic{width:34px;height:34px;border-radius:var(--r-ctl);background:var(--raise);display:grid;place-items:center;flex:none}
+  .folder b{display:block;font-weight:500}
+  .folder small{color:var(--mute);font-size:12px}
+
+  .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-ctl);padding:3px}
+  .seg button{background:none;border:0;color:var(--mute);font:inherit;padding:6px 0;border-radius:4px;cursor:pointer}
+  .seg button:hover{color:var(--text)}
+  .seg button[aria-pressed=true]{background:var(--raise);color:var(--text);box-shadow:inset 0 0 0 1px var(--line2)}
+  .hint{font-size:12px;color:var(--dim)}
+
+  .spacer{flex:1}
+  .estimate{border-top:1px solid var(--line);padding-top:var(--s4);display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+  .estimate div{display:flex;flex-direction:column}
+  .estimate small{color:var(--mute);font-size:12px}
+  .estimate b{font-weight:500;font-size:15px}
+  .go{background:var(--brand);color:var(--on-brand);border:0;border-radius:var(--r-ctl);padding:12px;font:inherit;font-weight:700;font-size:15px;cursor:pointer;transition:background .15s}
+  .go:hover{background:var(--brand-2)}
+  .go.stop{background:var(--raise);color:var(--text);box-shadow:inset 0 0 0 1px var(--line2)}
+
+  /* zone principale */
+  main{display:grid;grid-template-rows:1fr auto;min-height:0}
+  .stage{position:relative;margin:var(--s5) var(--s5) 0;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;background:#0b0a09}
+  .compare{position:absolute;inset:0;cursor:ew-resize}
+  .compare canvas{position:absolute;inset:0;width:100%;height:100%}
+  .compare .after{clip-path:inset(0 0 0 var(--x,50%))}
+  .handle{position:absolute;top:0;bottom:0;left:var(--x,50%);width:2px;background:var(--text);transform:translateX(-1px)}
+  .handle::after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;transform:translate(-50%,-50%);border-radius:50%;background:var(--text);
+    mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30"><circle cx="15" cy="15" r="15"/></svg>')}
+  .handle i{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1;color:var(--bg);font-style:normal;font-size:12px;font-weight:700;letter-spacing:2px}
+  .tag{position:absolute;top:var(--s3);padding:3px 8px;border-radius:4px;background:#0e0d0ccc;font-size:12px;color:var(--mute)}
+  .tag.l{left:var(--s3)} .tag.r{right:var(--s3);color:var(--text)}
+  .meta{position:absolute;bottom:var(--s3);left:var(--s3);font-size:12px;color:var(--mute);background:#0e0d0ccc;padding:3px 8px;border-radius:4px}
+
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;padding:var(--s6);gap:var(--s2);
+         background:var(--panel)}
+  .empty h2{font-size:30px;font-weight:700;letter-spacing:-.02em;max-width:16ch;line-height:1.1}
+  .empty p{color:var(--mute);max-width:44ch}
+
+  .footer{padding:var(--s4) var(--s5) var(--s5);display:flex;flex-direction:column;gap:var(--s3)}
+  .row{display:flex;justify-content:space-between;align-items:baseline}
+  .count{font-size:22px;font-weight:500}
+  .count small{color:var(--dim);font-size:14px}
+  .eta{color:var(--mute);font-size:13px}
+  .bar{height:6px;background:var(--panel);border-radius:3px;overflow:hidden}
+  .bar i{display:block;height:100%;width:var(--p,0%);background:var(--brand);transition:width .25s}
+  .strip{display:flex;gap:var(--s2)}
+  .strip canvas{width:64px;height:44px;border-radius:4px;border:1px solid var(--line)}
+  .strip canvas.cur{border-color:var(--brand)}
+  .done{display:flex;align-items:center;gap:var(--s3)}
+  .done .ok{color:var(--ok)}
+  .ghost{background:none;border:1px solid var(--line2);color:var(--text);border-radius:var(--r-ctl);padding:8px 14px;font:inherit;cursor:pointer}
+  .ghost:hover{border-color:var(--mute)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="demo">Maquette · état :
+  <button data-s="idle" aria-pressed="false">Accueil</button>
+  <button data-s="run" aria-pressed="true">En cours</button>
+  <button data-s="done" aria-pressed="false">Terminé</button>
+</div>
+
+<div class="win">
+  <div class="titlebar">
+    <div class="t"><div class="logo" style="width:16px;height:16px;font-size:10px;border-radius:3px">R</div>Rodo Upscale</div>
+    <div class="ctrls"><span>&#x2014;</span><span>&#x25A1;</span><span>&#x2715;</span></div>
+  </div>
+
+  <div class="body">
+    <aside>
+      <div class="brand"><div class="logo">R</div><h1>Rodo <span>Upscale</span></h1></div>
+
+      <div class="field">
+        <div class="label">Dossier d'images</div>
+        <div class="folder">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+          <div><b id="fname">Photos vacances 2024</b><small class="mono" id="fcount">1 000 images · 2,1 Go</small></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="label">Type d'image</div>
+        <div class="seg"><button aria-pressed="true">Photo</button><button aria-pressed="false">Dessin</button></div>
+      </div>
+
+      <div class="field">
+        <div class="label">Agrandir</div>
+        <div class="seg"><button aria-pressed="false">×2</button><button aria-pressed="true">×4</button></div>
+        <div class="hint mono">1600×1200 → 6400×4800</div>
+      </div>
+
+      <div class="field">
+        <div class="label">Format</div>
+        <div class="seg"><button aria-pressed="true">JPG</button><button aria-pressed="false">PNG</button></div>
+        <div class="hint">JPG : léger. PNG : qualité maximale, fichiers lourds.</div>
+      </div>
+
+      <div class="field">
+        <div class="label">Vitesse</div>
+        <div class="seg"><button aria-pressed="true">Qualité</button><button aria-pressed="false">Rapide</button></div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="estimate">
+        <div><small>Durée estimée</small><b class="mono">≈ 2 h 40</b></div>
+        <div><small>Taille finale</small><b class="mono">≈ 4,8 Go</b></div>
+      </div>
+      <button class="go" id="go">Lancer</button>
+    </aside>
+
+    <main>
+      <div class="stage">
+        <div class="compare" id="cmp">
+          <canvas class="before" id="cb"></canvas>
+          <canvas class="after" id="ca"></canvas>
+          <div class="handle"><i>‹›</i></div>
+          <span class="tag l">Avant</span><span class="tag r">Après ×4</span>
+          <span class="meta mono" id="cur">IMG_0237.jpg</span>
+        </div>
+        <div class="empty" id="empty" hidden>
+          <h2>Glisse un dossier d'images ici.</h2>
+          <p>Rodo Upscale agrandit toutes les images du dossier, une par une, directement sur ton PC. Tes originaux ne sont pas modifiés.</p>
+        </div>
+      </div>
+
+      <div class="footer">
+        <div id="prog">
+          <div class="row"><div class="count mono"><span id="n">237</span><small> / 1 000</small></div><div class="eta mono" id="eta">reste ≈ 2 h 03 · 7,4 s par image</div></div>
+          <div class="bar" style="margin-top:var(--s3)"><i id="bar" style="--p:23.7%"></i></div>
+        </div>
+        <div class="strip" id="strip"></div>
+        <div class="done" id="done" hidden>
+          <span class="ok">1 000 images terminées en 2 h 38.</span>
+          <span class="spacer"></span>
+          <button class="ghost">Ouvrir le dossier</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+// image de démo dessinée à la main : paysage
+function paint(ctx,w,h,seed){
+  const r=(n)=>{seed=(seed*9301+49297)%233280;return seed/233280*n};
+  const g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#f4b37a');g.addColorStop(.55,'#e06a3c');g.addColorStop(.56,'#3b2a2a');g.addColorStop(1,'#141011');
+  ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='#fde4c2';ctx.beginPath();ctx.arc(w*.68,h*.4,h*.11,0,7);ctx.fill();
+  for(let l=0;l<3;l++){ctx.fillStyle=['#7a3b34','#4a2729','#241718'][l];ctx.beginPath();ctx.moveTo(0,h);
+    for(let x=0;x<=w;x+=w/24)ctx.lineTo(x,h*(.5+l*.1)-r(h*.12));ctx.lineTo(w,h);ctx.fill();}
+  ctx.strokeStyle='#fde4c255';for(let i=0;i<40;i++){const y=h*.6+r(h*.35);ctx.beginPath();ctx.moveTo(w*.55+r(w*.2),y);ctx.lineTo(w*.6+r(w*.25),y);ctx.stroke();}
+}
+function draw(c,low,seed){
+  const W=c.clientWidth,H=c.clientHeight,d=devicePixelRatio;c.width=W*d;c.height=H*d;const ctx=c.getContext('2d');
+  if(low){const s=document.createElement('canvas');s.width=W/9;s.height=H/9;paint(s.getContext('2d'),s.width,s.height,seed);
+    ctx.imageSmoothingEnabled=true;ctx.filter='blur(1.2px)';ctx.drawImage(s,0,0,c.width,c.height);}
+  else{ctx.scale(d,d);paint(ctx,W,H,seed);}
+}
+const cb=document.getElementById('cb'),ca=document.getElementById('ca'),cmp=document.getElementById('cmp');
+function render(seed){draw(cb,true,seed);draw(ca,false,seed);}
+render(42);
+let drag=false;
+const setX=e=>{const r=cmp.getBoundingClientRect();cmp.style.setProperty('--x',Math.min(100,Math.max(0,(e.clientX-r.left)/r.width*100))+'%')};
+cmp.addEventListener('pointerdown',e=>{drag=true;setX(e)});addEventListener('pointerup',()=>drag=false);addEventListener('pointermove',e=>drag&&setX(e));
+
+// vignettes
+const strip=document.getElementById('strip');
+for(let i=0;i<8;i++){const c=document.createElement('canvas');strip.appendChild(c);c.width=128;c.height=88;paint(c.getContext('2d'),128,88,i*77+3);if(i===7)c.classList.add('cur');}
+
+// segmented controls
+document.querySelectorAll('.seg').forEach(s=>s.addEventListener('click',e=>{if(e.target.tagName!=='BUTTON')return;s.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===e.target))}));
+
+// états
+const $=id=>document.getElementById(id);let timer,n=237;
+function state(s){
+  document.querySelectorAll('.demo button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.s===s));
+  $('empty').hidden=s!=='idle';$('prog').hidden=s==='idle';$('strip').hidden=s!=='run';$('done').hidden=s!=='done';
+  $('go').textContent=s==='run'?'Mettre en pause':s==='done'?'Relancer':'Lancer';$('go').classList.toggle('stop',s==='run');
+  $('fname').textContent=s==='idle'?'Choisir un dossier…':'Photos vacances 2024';$('fcount').textContent=s==='idle'?'ou glisse-le à droite':'1 000 images · 2,1 Go';
+  clearInterval(timer);
+  if(s==='done'){$('n').textContent='1 000';$('bar').style.setProperty('--p','100%');$('eta').textContent='terminé';}
+  if(s==='run'){timer=setInterval(()=>{n=n>=999?237:n+1;$('n').textContent=n;$('bar').style.setProperty('--p',n/10+'%');
+    const m=Math.round((1000-n)*7.4/60);$('eta').textContent=`reste ≈ ${Math.floor(m/60)} h ${String(m%60).padStart(2,'0')} · 7,4 s par image`;
+    $('cur').textContent='IMG_'+String(n).padStart(4,'0')+'.jpg';if(n%3===0)render(n);},900);}
+  if(s!=='idle')requestAnimationFrame(()=>render(n));
+}
+document.querySelectorAll('.demo button').forEach(b=>b.onclick=()=>state(b.dataset.s));
+$('go').onclick=()=>state($('go').textContent==='Mettre en pause'?'done':'run');
+state('run');
+</script>
+</body>
+</html>

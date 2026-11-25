@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main window: events and the folder picker. The engine runs from Rust, not from the page.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

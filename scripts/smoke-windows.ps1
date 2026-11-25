@@ -109,3 +109,5 @@ if ($r.Code -eq 0 -and (Test-Path $Out) -and (Get-Item $Out).Length -gt 0) {
     Write-Host "::warning::No Vulkan device on this runner (exit code $($r.Code)): real upscale skipped. The binary and its DLLs load fine."
 }
 Log 'smoke test passed'
+# The engine's last call can leave $LASTEXITCODE at -1 (no GPU on the runner); every check above passed.
+exit 0

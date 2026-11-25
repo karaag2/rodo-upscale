@@ -1,8 +1,10 @@
 // Engine side of Rodo Upscale. Commands and events are specified in CONTRACT.md.
 
 mod engine;
+mod history;
 
 use engine::{JobControl, Settings};
+use history::{History, HistoryEntry};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -77,14 +79,18 @@ fn scan_folder(path: String) -> Result<ScanResult, String> {
 fn start_job(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    history: State<'_, Arc<History>>,
     input_dir: String,
     settings: Settings,
+    output_parent: Option<String>,
 ) -> Result<JobStarted, String> {
     let mut slot = state.job.lock().unwrap();
     if slot.as_ref().is_some_and(|j| j.running.load(Ordering::SeqCst)) {
         return Err("Un traitement est déjà en cours.".into());
     }
-    let (control, started) = engine::start(app, PathBuf::from(input_dir), settings)?;
+    let output_parent = output_parent.filter(|p| !p.is_empty()).map(PathBuf::from);
+    let (control, started) =
+        engine::start(app, history.inner().clone(), PathBuf::from(input_dir), settings, output_parent)?;
     *slot = Some(control);
     Ok(started)
 }
@@ -103,12 +109,35 @@ fn open_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
         .map_err(|_| "Impossible d'ouvrir ce dossier.".to_string())
 }
 
+#[tauri::command]
+fn list_history(history: State<'_, Arc<History>>) -> Vec<HistoryEntry> {
+    history.list()
+}
+
+#[tauri::command]
+fn clear_history(app: tauri::AppHandle, history: State<'_, Arc<History>>) {
+    history.clear();
+    let _ = tauri::Emitter::emit(&app, "history://changed", ());
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![scan_folder, start_job, pause_job, open_path])
+        .setup(|app| {
+            let file = app.path().app_data_dir().ok().map(|d| d.join("history.json"));
+            app.manage(Arc::new(History::load(file)));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            scan_folder,
+            start_job,
+            pause_job,
+            open_path,
+            list_history,
+            clear_history
+        ])
         .build(tauri::generate_context!())
         .expect("error while building Rodo Upscale")
         .run(|app, event| {

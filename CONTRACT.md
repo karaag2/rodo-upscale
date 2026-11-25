@@ -29,9 +29,11 @@ Model used by the backend (Real-ESRGAN ncnn models shipped in `models/`):
 | command        | args                                   | returns         |
 |----------------|----------------------------------------|-----------------|
 | `scan_folder`  | `{ path: string }`                     | `ScanResult`    |
-| `start_job`    | `{ inputDir: string, settings: Settings }` | `JobStarted` |
+| `start_job`    | `{ inputDir: string, settings: Settings, outputParent: string \| null }` | `JobStarted` |
 | `pause_job`    | none                                   | `null` (finishes the image in progress, then emits `job://paused`) |
 | `open_path`    | `{ path: string }`                     | `null` (opens a folder or file in Explorer / Finder) |
+| `list_history` | none                                   | `HistoryEntry[]`, most recent first, at most 50 |
+| `clear_history`| none                                   | `null` (forgets every entry except a running one; never deletes images) |
 
 ```ts
 interface ScanResult {
@@ -44,7 +46,7 @@ interface ScanResult {
 }
 
 interface JobStarted {
-  outputDir: string;      // sibling folder: "<input> (Rodo x4)" or "<input> (Rodo x2)"
+  outputDir: string;      // "<outputParent>/<input name> (Rodo x4)"; outputParent null = the input's own parent folder
   total: number;
   alreadyDone: number;    // images already present in outputDir: skipped, so a job resumes
 }
@@ -52,6 +54,43 @@ interface JobStarted {
 
 Errors: commands reject with a plain French string the interface can show as is
 (e.g. « Ce dossier ne contient aucune image. »).
+
+## Output folder
+
+`outputParent` is the folder the user picked with « Changer… », or `null` for « À côté de l'original ».
+The backend always creates `<input name> (Rodo x2|x4)` inside it, so batches never mix and resuming works.
+It rejects an `outputParent` inside the input folder (« Choisis un dossier de sortie en dehors du dossier d'images. »).
+
+## History
+
+Kept by the backend in the app data folder (`history.json`), written after every image so a crash loses nothing.
+
+```ts
+type JobStatus = "running" | "paused" | "finished" | "error" | "interrupted";
+
+interface HistoryEntry {
+  id: string;
+  startedAt: number;          // unix ms of the first run
+  updatedAt: number;          // unix ms of the last change
+  inputDir: string;
+  outputDir: string;
+  outputParent: string | null;
+  settings: Settings;
+  total: number;
+  done: number;               // includes images skipped because already there
+  failed: number;
+  elapsedSeconds: number;     // summed over every run of this entry
+  status: JobStatus;          // "interrupted": the app was closed while it was running
+  errorMessage: string | null;
+  inputExists: boolean;       // checked when listed
+  outputExists: boolean;
+}
+```
+
+- `start_job` with the same `inputDir`, `outputDir` and `settings` as an existing entry continues that entry
+  (status back to `running`) instead of adding a new one. « Reprendre » in the history is just `start_job`
+  with the entry's `inputDir`, `settings` and `outputParent`.
+- At startup, entries left `running` become `interrupted`.
 
 ## Events (`listen`)
 
@@ -61,6 +100,7 @@ Errors: commands reject with a plain French string the interface can show as is
 | `job://paused`  | `Summary`     | after `pause_job` |
 | `job://finished`| `Summary`     | when every image is processed |
 | `job://error`   | `{ message: string }` | fatal error: engine missing, GPU not supported. The job stops. |
+| `history://changed` | none | an entry was added, changed status, or the history was cleared (not on every image) |
 
 ```ts
 interface Progress {

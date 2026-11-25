@@ -8,7 +8,9 @@
   </head>
   <body>
     <aside>
-      <div class="brand"><div class="logo" aria-hidden="true">R</div><h1>Rodo <span>Upscale</span></h1></div>
+      <div class="brand"><div class="logo" aria-hidden="true">R</div><h1>Rodo <span>Upscale</span></h1>
+        <button type="button" class="link" id="histBtn" aria-controls="history" aria-expanded="false">Historique</button>
+      </div>
 
       <div class="field">
         <div class="label" id="l-folder">Dossier d'images</div>
@@ -48,6 +50,18 @@
         </div>
       </div>
 
+      <div class="field">
+        <div class="label" id="l-out">Sortie</div>
+        <div class="out" role="group" aria-labelledby="l-out">
+          <span class="out-path" id="outPath">À côté de l'original</span>
+          <button type="button" class="out-reset" id="outReset" hidden aria-label="Revenir à « À côté de l'original »" title="Revenir à « À côté de l'original »">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          </button>
+          <button type="button" class="out-change" id="outChange">Changer…</button>
+        </div>
+        <div class="hint mono out-final" id="outFinal" hidden></div>
+      </div>
+
       <div class="spacer"></div>
 
       <div class="estimate" id="estimate" hidden>
@@ -58,6 +72,34 @@
     </aside>
 
     <main>
+      <section class="history" id="history" aria-labelledby="histTitle" hidden>
+        <header class="hist-head">
+          <h2 id="histTitle">Historique</h2>
+          <small class="mono" id="histCount"></small>
+          <button type="button" class="icon-btn" id="histClose" aria-label="Fermer l'historique" title="Fermer (Échap)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </header>
+        <p class="alert" id="histAlert" role="alert" hidden></p>
+        <p class="hist-loading mono" id="histLoading" hidden>Lecture de l'historique…</p>
+        <div class="hist-empty" id="histEmpty" hidden>
+          <h3>Aucun lot pour l'instant.</h3>
+          <p>Chaque dossier que tu lances s'inscrit ici, avec de quoi rouvrir le résultat ou reprendre là où il s'est arrêté.</p>
+        </div>
+        <ol class="hist-list" id="histList"></ol>
+        <footer class="hist-foot" id="histFoot" hidden>
+          <div class="hist-clear" id="histClearRow">
+            <button type="button" class="link" id="histClear">Vider l'historique</button>
+            <span class="hint">Ne supprime aucune image.</span>
+          </div>
+          <div class="hist-confirm" id="histConfirm" hidden>
+            <span id="histConfirmText"></span>
+            <button type="button" class="ghost sm" id="histCancel">Annuler</button>
+            <button type="button" class="ghost sm danger" id="histConfirmBtn">Vider</button>
+          </div>
+        </footer>
+      </section>
+
       <div class="stage" id="stage">
         <div class="compare" id="cmp" hidden>
           <img class="before" id="imgBefore" alt="" draggable="false" />

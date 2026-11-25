@@ -38,11 +38,33 @@ export interface Summary {
   outputDir: string;
 }
 
+export type JobStatus = "running" | "paused" | "finished" | "error" | "interrupted";
+
+export interface HistoryEntry {
+  id: string;
+  startedAt: number;
+  updatedAt: number;
+  inputDir: string;
+  outputDir: string;
+  outputParent: string | null;
+  settings: Settings;
+  total: number;
+  done: number;
+  failed: number;
+  elapsedSeconds: number;
+  status: JobStatus;
+  errorMessage: string | null;
+  inputExists: boolean;
+  outputExists: boolean;
+}
+
 export const scanFolder = (path: string) => invoke<ScanResult>("scan_folder", { path });
-export const startJob = (inputDir: string, settings: Settings) =>
-  invoke<JobStarted>("start_job", { inputDir, settings });
+export const startJob = (inputDir: string, settings: Settings, outputParent: string | null) =>
+  invoke<JobStarted>("start_job", { inputDir, settings, outputParent });
 export const pauseJob = () => invoke<null>("pause_job");
 export const openPath = (path: string) => invoke<null>("open_path", { path });
+export const listHistory = () => invoke<HistoryEntry[]>("list_history");
+export const clearHistory = () => invoke<null>("clear_history");
 
 export const onProgress = (cb: (p: Progress) => void): Promise<UnlistenFn> =>
   listen<Progress>("job://progress", (e) => cb(e.payload));
@@ -52,3 +74,5 @@ export const onFinished = (cb: (s: Summary) => void): Promise<UnlistenFn> =>
   listen<Summary>("job://finished", (e) => cb(e.payload));
 export const onJobError = (cb: (message: string) => void): Promise<UnlistenFn> =>
   listen<{ message: string }>("job://error", (e) => cb(e.payload.message));
+export const onHistoryChanged = (cb: () => void): Promise<UnlistenFn> =>
+  listen("history://changed", () => cb());

@@ -1,5 +1,6 @@
 //! Runs `realesrgan-ncnn-vulkan` on every image of a folder, one at a time, in a background thread.
 
+use crate::history::{History, JobStatus};
 use crate::{list_images, JobStarted};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -10,19 +11,19 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind { Photo, Drawing }
 
-#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Format { Jpg, Png }
 
-#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Speed { Quality, Fast }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct Settings {
     kind: Kind,
     scale: u32,
@@ -77,10 +78,25 @@ struct Summary {
 #[derive(Serialize, Clone)]
 struct JobError { message: String }
 
-fn output_dir_for(input: &Path, scale: u32) -> PathBuf {
+/// `<parent>/<input name> (Rodo x4)`, where parent is the chosen output folder or the input's own parent.
+fn output_dir_for(input: &Path, scale: u32, output_parent: Option<&Path>) -> PathBuf {
     let name = input.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Images".into());
-    let parent = input.parent().unwrap_or(input);
+    let parent = output_parent.unwrap_or_else(|| input.parent().unwrap_or(input));
     parent.join(format!("{name} (Rodo x{scale})"))
+}
+
+/// The chosen output folder must exist and must not be inside the images folder (the results would
+/// mix with the originals and be picked up as input next time).
+fn check_output_parent(input: &Path, parent: &Path) -> Result<(), String> {
+    let parent = parent.canonicalize().map_err(|_| "Le dossier de sortie est introuvable.".to_string())?;
+    if !parent.is_dir() {
+        return Err("Le dossier de sortie est introuvable.".into());
+    }
+    let input = input.canonicalize().map_err(|_| "Impossible d'ouvrir ce dossier.".to_string())?;
+    if parent.starts_with(&input) {
+        return Err("Choisis un dossier de sortie en dehors du dossier d'images.".into());
+    }
+    Ok(())
 }
 
 fn output_file(out_dir: &Path, input: &Path, fmt: Format) -> PathBuf {
@@ -109,7 +125,13 @@ fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
     }
 }
 
-pub fn start(app: AppHandle, input: PathBuf, settings: Settings) -> Result<(Arc<JobControl>, JobStarted), String> {
+pub fn start(
+    app: AppHandle,
+    history: Arc<History>,
+    input: PathBuf,
+    settings: Settings,
+    output_parent: Option<PathBuf>,
+) -> Result<(Arc<JobControl>, JobStarted), String> {
     if settings.scale != 2 && settings.scale != 4 {
         return Err("Facteur d'agrandissement invalide.".into());
     }
@@ -119,7 +141,10 @@ pub fn start(app: AppHandle, input: PathBuf, settings: Settings) -> Result<(Arc<
     }
     let engine = engine_path()?;
     let models = models_dir(&app)?;
-    let out_dir = output_dir_for(&input, settings.scale);
+    if let Some(parent) = &output_parent {
+        check_output_parent(&input, parent)?;
+    }
+    let out_dir = output_dir_for(&input, settings.scale, output_parent.as_deref());
     std::fs::create_dir_all(&out_dir).map_err(|_| "Impossible de créer le dossier de sortie.".to_string())?;
 
     let already_done = images.iter().filter(|p| is_done(&output_file(&out_dir, p, settings.format))).count();
@@ -134,10 +159,39 @@ pub fn start(app: AppHandle, input: PathBuf, settings: Settings) -> Result<(Arc<
         already_done,
     };
 
+    let (entry, earlier_seconds) =
+        history.begin(&input, &out_dir, output_parent.as_deref(), settings, images.len(), already_done);
+    let _ = app.emit("history://changed", ());
+
     let ctl = control.clone();
     std::thread::spawn(move || {
+        let run_started = Instant::now();
+        // Every event the job sends also updates its history entry.
         let emit = move |event: &str, payload: serde_json::Value| {
+            let count = |key: &str| payload[key].as_u64().map(|n| n as usize);
+            let status = match event {
+                "job://paused" => Some(JobStatus::Paused),
+                "job://finished" => Some(JobStatus::Finished),
+                "job://error" => Some(JobStatus::Error),
+                _ => None,
+            };
+            history.update(&entry, |e| {
+                if let (Some(done), Some(failed)) = (count("done"), count("failed")) {
+                    e.done = done;
+                    e.failed = failed;
+                }
+                e.elapsed_seconds = earlier_seconds + run_started.elapsed().as_secs_f64();
+                if let Some(status) = status {
+                    e.status = status;
+                }
+                if event == "job://error" {
+                    e.error_message = payload["message"].as_str().map(str::to_string);
+                }
+            });
             let _ = app.emit(event, payload);
+            if status.is_some() {
+                let _ = app.emit("history://changed", ());
+            }
         };
         let job = Job { emit: &emit, engine, models, out_dir, settings, ctl: &ctl };
         job.run(images);
@@ -343,8 +397,12 @@ mod tests {
 
     #[test]
     fn output_names() {
-        let out = output_dir_for(Path::new("/x/Photos vacances"), 4);
+        let out = output_dir_for(Path::new("/x/Photos vacances"), 4, None);
         assert_eq!(out, Path::new("/x/Photos vacances (Rodo x4)"));
+        assert_eq!(
+            output_dir_for(Path::new("/x/Photos vacances"), 2, Some(Path::new("/d/Sorties"))),
+            Path::new("/d/Sorties/Photos vacances (Rodo x2)")
+        );
         assert_eq!(output_file(&out, Path::new("/x/Photos vacances/IMG_1.PNG"), Format::Jpg), out.join("IMG_1.jpg"));
     }
 
@@ -375,7 +433,7 @@ mod tests {
         }
 
         let run = |settings: Settings, pause: bool| {
-            let out_dir = output_dir_for(&input, settings.scale);
+            let out_dir = output_dir_for(&input, settings.scale, None);
             std::fs::create_dir_all(&out_dir).unwrap();
             let events = std::sync::Mutex::new(Vec::<(String, serde_json::Value)>::new());
             let emit = |e: &str, v: serde_json::Value| events.lock().unwrap().push((e.to_string(), v));
@@ -413,6 +471,21 @@ mod tests {
         assert_eq!(ev.last().unwrap().1["failed"], 0, "{ev:?}");
         assert_eq!(image::image_dimensions(out.join("img2.png")).unwrap(), (200, 120));
 
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn output_parent_must_be_outside_input() {
+        let base = std::env::temp_dir().join(format!("rodo-parent-{}", std::process::id()));
+        let input = base.join("Photos");
+        std::fs::create_dir_all(input.join("sous-dossier")).unwrap();
+        assert!(check_output_parent(&input, &base).is_ok());
+        assert_eq!(
+            check_output_parent(&input, &input.join("sous-dossier")).unwrap_err(),
+            "Choisis un dossier de sortie en dehors du dossier d'images."
+        );
+        assert!(check_output_parent(&input, &input).is_err());
+        assert_eq!(check_output_parent(&input, &base.join("absent")).unwrap_err(), "Le dossier de sortie est introuvable.");
         std::fs::remove_dir_all(&base).unwrap();
     }
 

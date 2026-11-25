@@ -2,7 +2,7 @@ import "@fontsource-variable/bricolage-grotesque/opsz.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./styles.css";
-import type { Format, Kind, Progress, ScanResult, Scale, Settings, Speed, Summary } from "./api";
+import type { Format, HistoryEntry, JobStatus, Kind, Progress, ScanResult, Scale, Settings, Speed, Summary } from "./api";
 import { loadBackend, type Backend } from "./backend";
 
 // ---- formatting (French) ------------------------------------------------------------------
@@ -24,6 +24,47 @@ function duration(s: number) {
 }
 
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+const sepOf = (p: string) => (p.includes("\\") ? "\\" : "/");
+const trimSep = (p: string) => p.replace(/[\\/]+$/, "");
+
+function parentDir(p: string) {
+  const t = trimSep(p);
+  return t.slice(0, Math.max(0, Math.max(t.lastIndexOf("\\"), t.lastIndexOf("/"))));
+}
+
+/** Same rule as the backend: "<outputParent or the input's parent>/<input name> (Rodo xN)". */
+function finalDir(input: string, scale: Scale, outputParent: string | null) {
+  const parent = trimSep(outputParent ?? parentDir(input));
+  return `${parent}${sepOf(outputParent ?? input)}${baseName(input)} (Rodo x${scale})`;
+}
+
+/** "C:\\Users\\Rodo\\Images\\Mariage" with keep 2 → "…\\Images\\Mariage". */
+function shortPath(p: string, keep: number) {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  if (parts.length <= keep) return p;
+  const sep = sepOf(p);
+  return `…${sep}${parts.slice(-keep).join(sep)}`;
+}
+
+const KIND_LABEL: Record<Kind, string> = { photo: "Photo", drawing: "Dessin" };
+const SPEED_LABEL: Record<Speed, string> = { quality: "Qualité", fast: "Rapide" };
+const settingsSummary = (s: Settings) => `${KIND_LABEL[s.kind]} ×${s.scale} · ${s.format.toUpperCase()} · ${SPEED_LABEL[s.speed]}`;
+
+const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+function relativeDate(ms: number, now = Date.now()) {
+  const minutes = Math.floor((now - ms) / 60_000);
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const then = new Date(ms);
+  const days = Math.round((day(new Date(now)) - day(then)) / 86_400_000);
+  // Hours read better than « hier » for something a few hours old, even across midnight.
+  if (days <= 0 || minutes < 6 * 60) return `il y a ${Math.floor(minutes / 60)} h`;
+  if (days === 1) return "hier";
+  if (days < 7) return `il y a ${days} jours`;
+  const year = then.getFullYear() === new Date(now).getFullYear() ? "" : ` ${then.getFullYear()}`;
+  return `le ${then.getDate()} ${MONTHS[then.getMonth()]}${year}`;
+}
 const perImage = (s: number) => `${s.toFixed(1).replace(".", ",")} s par image`;
 
 // ---- settings ---------------------------------------------------------------------------
@@ -52,6 +93,26 @@ function saveSettings(s: Settings) {
   }
 }
 
+const OUTPUT_KEY = "rodo.outputParent";
+
+function loadOutputParent(): string | null {
+  try {
+    const v = localStorage.getItem(OUTPUT_KEY);
+    return v && v.trim() ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveOutputParent(v: string | null) {
+  try {
+    if (v) localStorage.setItem(OUTPUT_KEY, v);
+    else localStorage.removeItem(OUTPUT_KEY);
+  } catch {
+    /* not remembered, same as the settings */
+  }
+}
+
 /** Seconds per image before the engine has measured anything. */
 const guessSeconds = (s: Settings) => (s.speed === "fast" ? 2 : 8);
 const settingsKey = (s: Settings) => `${s.kind}-${s.scale}-${s.speed}`;
@@ -65,6 +126,8 @@ const state = {
   scanning: false,
   scan: null as ScanResult | null,
   settings: loadSettings(),
+  /** null = « À côté de l'original ». */
+  outputParent: loadOutputParent(),
   measured: new Map<string, number>(),
   job: null as null | {
     outputDir: string; scale: Scale; key: string;
@@ -76,12 +139,29 @@ const state = {
   shots: [] as Shot[],
   pinned: null as number | null,
   dropping: false,
+  history: {
+    open: false,
+    entries: null as HistoryEntry[] | null,
+    loading: false,
+    error: null as string | null,
+    confirm: false,
+    /** Bumped whenever the list must be rebuilt. */
+    version: 0,
+  },
 };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const el = {
   folder: $<HTMLButtonElement>("folder"), fname: $("fname"), fcount: $("fcount"),
   scaleHint: $("scaleHint"),
+  outPath: $("outPath"), outReset: $<HTMLButtonElement>("outReset"), outChange: $<HTMLButtonElement>("outChange"),
+  outFinal: $("outFinal"),
+  histBtn: $<HTMLButtonElement>("histBtn"), history: $("history"), histCount: $("histCount"),
+  histClose: $<HTMLButtonElement>("histClose"), histAlert: $("histAlert"), histLoading: $("histLoading"),
+  histEmpty: $("histEmpty"), histList: $("histList"), histFoot: $("histFoot"),
+  histClearRow: $("histClearRow"), histClear: $<HTMLButtonElement>("histClear"),
+  histConfirm: $("histConfirm"), histConfirmText: $("histConfirmText"),
+  histCancel: $<HTMLButtonElement>("histCancel"), histConfirmBtn: $<HTMLButtonElement>("histConfirmBtn"),
   estimate: $("estimate"), estTime: $("estTime"), estSize: $("estSize"),
   go: $<HTMLButtonElement>("go"),
   stage: $("stage"), cmp: $("cmp"), handle: $("handle"),
@@ -142,6 +222,21 @@ function render() {
       ? `${scan.sampleWidth}×${scan.sampleHeight} → ${scan.sampleWidth * settings.scale}×${scan.sampleHeight * settings.scale}`
       : `Chaque côté ×${settings.scale}`;
 
+  // Output folder
+  const out = state.outputParent;
+  el.outPath.textContent = out ? shortPath(out, 2) : "À côté de l'original";
+  el.outPath.title = out ?? "Dans le même dossier que le dossier d'images";
+  el.outPath.classList.toggle("custom", !!out);
+  el.outReset.hidden = !out;
+  el.outReset.disabled = busy();
+  el.outChange.disabled = busy();
+  el.outFinal.hidden = !scan;
+  if (scan) {
+    const target = finalDir(scan.path, settings.scale, out);
+    el.outFinal.textContent = shortPath(target, 1);
+    el.outFinal.title = target;
+  }
+
   // Estimate, only once a folder is known
   el.estimate.hidden = !scan;
   if (scan) {
@@ -179,12 +274,13 @@ function render() {
   el.alert.hidden = !state.error;
   el.alert.textContent = state.error ?? "";
 
-  el.note.hidden = phase !== "ready" || !scan;
+  el.note.hidden = phase !== "ready" || !scan || !!state.error;
   if (!el.note.hidden && scan) {
     el.note.replaceChildren(
       "Les images agrandies iront dans un nouveau dossier, ",
       Object.assign(document.createElement("b"), { textContent: `${baseName(scan.path)} (Rodo x${settings.scale})` }),
-      ". Tes originaux ne bougent pas.",
+      out ? `, dans ${baseName(out)}. ` : ", à côté de l'original. ",
+      "Tes originaux ne bougent pas.",
     );
   }
 
@@ -234,6 +330,184 @@ function render() {
       parts.push(warn);
     }
     el.doneText.replaceChildren(...parts.flatMap((p, i) => (i ? [" ", p] : [p])));
+  }
+
+  renderHistory();
+}
+
+// ---- history view -------------------------------------------------------------------------
+const STATUS_LABEL: Record<JobStatus, string> = {
+  running: "En cours", paused: "En pause", finished: "Terminé", error: "Erreur", interrupted: "Interrompu",
+};
+const resumable = (e: HistoryEntry) => e.status === "paused" || e.status === "interrupted" || e.status === "error";
+const isLiveEntry = (e: HistoryEntry) => e.status === "running" && state.job?.outputDir === e.outputDir;
+
+function button(label: string, cls: string, onClick: () => void, disabled = false) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = cls;
+  b.textContent = label;
+  b.disabled = disabled;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function span(cls: string, text: string) {
+  return Object.assign(document.createElement("span"), { className: cls, textContent: text });
+}
+
+function historyItem(e: HistoryEntry) {
+  const li = document.createElement("li");
+  li.className = "hist-item";
+
+  const info = document.createElement("div");
+  info.className = "hist-info";
+
+  const title = document.createElement("div");
+  title.className = "hist-title";
+  const name = Object.assign(document.createElement("b"), { textContent: baseName(e.inputDir), title: e.inputDir });
+  title.append(name, span(`chip s-${e.status}`, STATUS_LABEL[e.status]));
+
+  const meta = document.createElement("div");
+  meta.className = "hist-meta mono";
+  const when = span("", relativeDate(e.updatedAt));
+  when.title = new Date(e.updatedAt).toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" });
+  meta.append(when, ` · ${settingsSummary(e.settings)}`);
+
+  const counts = document.createElement("div");
+  counts.className = "hist-counts mono";
+  const done = span("", `${n(isLiveEntry(e) && state.job ? state.job.done : e.done)} / ${n(e.total)}`);
+  if (isLiveEntry(e)) done.id = "histLive";
+  counts.append(done, span("dim", e.total > 1 ? " images" : " image"));
+  if (e.failed > 0) counts.append(" · ", span("err", e.failed > 1 ? `${n(e.failed)} échecs` : "1 échec"));
+  if (e.elapsedSeconds >= 1) counts.append(span("dim", ` · ${duration(e.elapsedSeconds)}`));
+
+  info.append(title, meta, counts);
+
+  const notes: string[] = [];
+  if (e.status === "error" && e.errorMessage) notes.push(e.errorMessage);
+  const outputMissing = !e.outputExists && e.status !== "running";
+  if (!e.inputExists && outputMissing) notes.push("Dossiers introuvables : déplacés, renommés ou sur une clé débranchée.");
+  else if (!e.inputExists) notes.push("Dossier d'origine introuvable : déplacé, renommé ou sur une clé débranchée.");
+  else if (outputMissing) notes.push("Dossier des images agrandies introuvable.");
+  if (e.inputExists && resumable(e) && busy()) notes.push("Un traitement est en cours : mets-le en pause pour reprendre celui-ci.");
+  for (const t of notes) info.append(Object.assign(document.createElement("p"), { className: "hist-note", textContent: t }));
+
+  const actions = document.createElement("div");
+  actions.className = "hist-actions";
+  const open = button("Ouvrir", "ghost sm", () => void openOutput(e.outputDir), !e.outputExists);
+  open.title = e.outputExists ? e.outputDir : "Dossier introuvable";
+  actions.append(open);
+  if (resumable(e)) {
+    const blocked = !e.inputExists || busy() || state.scanning;
+    const resume = button("Reprendre", "ghost sm primary", () => void resumeEntry(e), blocked);
+    resume.title = `${e.done} / ${e.total} déjà faites, il en reste ${e.total - e.done}`;
+    actions.append(resume);
+  }
+
+  li.append(info, actions);
+  return li;
+}
+
+let historyKey = "";
+function renderHistory() {
+  const h = state.history;
+  el.history.hidden = !h.open;
+  el.stage.hidden = h.open;
+  el.histBtn.setAttribute("aria-expanded", String(h.open));
+  el.histBtn.classList.toggle("on", h.open);
+  if (!h.open) {
+    historyKey = "";
+    return;
+  }
+
+  const live = document.getElementById("histLive");
+  if (live && state.job) live.textContent = `${n(state.job.done)} / ${n(state.job.total)}`;
+
+  const key = `${h.version}|${busy()}|${state.scanning}|${h.confirm}|${h.loading}|${h.error}`;
+  if (key === historyKey) return;
+  historyKey = key;
+
+  const entries = h.entries ?? [];
+  el.histAlert.hidden = !h.error;
+  el.histAlert.textContent = h.error ?? "";
+  el.histLoading.hidden = !(h.loading && h.entries === null);
+  el.histEmpty.hidden = h.entries === null || entries.length > 0;
+  el.histCount.textContent = entries.length ? plural(entries.length, "lot", "lots") : "";
+  el.histList.hidden = entries.length === 0;
+  el.histList.replaceChildren(...entries.map(historyItem));
+
+  const clearable = entries.filter((e) => e.status !== "running").length;
+  el.histFoot.hidden = clearable === 0;
+  el.histClearRow.hidden = h.confirm;
+  el.histConfirm.hidden = !h.confirm;
+  el.histConfirmText.textContent =
+    `Oublier ${clearable > 1 ? `ces ${n(clearable)} lots` : "ce lot"} ? Les images restent sur ton disque.`;
+}
+
+async function refreshHistory() {
+  const h = state.history;
+  h.loading = true;
+  render();
+  try {
+    h.entries = await backend.listHistory();
+    h.error = null;
+  } catch (e) {
+    h.error = errorText(e);
+  } finally {
+    h.loading = false;
+    h.version++;
+    render();
+  }
+}
+
+function openHistory() {
+  state.history.open = true;
+  state.history.confirm = false;
+  render();
+  el.histClose.focus();
+  void refreshHistory();
+}
+
+function closeHistory() {
+  state.history.open = false;
+  state.history.confirm = false;
+  render();
+  el.histBtn.focus();
+}
+
+async function openOutput(path: string) {
+  try {
+    await backend.openPath(path);
+  } catch (e) {
+    state.history.error = errorText(e);
+    render();
+  }
+}
+
+async function resumeEntry(e: HistoryEntry) {
+  if (busy() || state.scanning || !e.inputExists) return;
+  state.settings = { ...e.settings };
+  saveSettings(state.settings);
+  state.outputParent = e.outputParent;
+  saveOutputParent(e.outputParent);
+  state.history.open = false;
+  state.history.confirm = false;
+  el.go.focus();
+  if (await chooseFolder(e.inputDir)) await start();
+}
+
+async function clearHistory() {
+  const h = state.history;
+  try {
+    await backend.clearHistory();
+    h.confirm = false;
+    el.histBtn.focus();
+    await refreshHistory();
+  } catch (e) {
+    h.error = errorText(e);
+    h.version++;
+    render();
   }
 }
 
@@ -296,8 +570,8 @@ function renderStrip() {
 }
 
 // ---- actions ----------------------------------------------------------------------------
-async function chooseFolder(path: string) {
-  if (busy() || state.scanning) return;
+async function chooseFolder(path: string): Promise<boolean> {
+  if (busy() || state.scanning) return false;
   state.scanning = true;
   state.error = null;
   render();
@@ -309,12 +583,28 @@ async function chooseFolder(path: string) {
     state.shots = [];
     state.pinned = null;
     shownShot = undefined;
+    return true;
   } catch (e) {
     state.error = errorText(e);
+    return false;
   } finally {
     state.scanning = false;
     render();
   }
+}
+
+async function chooseOutput() {
+  if (busy()) return;
+  try {
+    const path = await backend.pickFolder("output");
+    if (!path) return;
+    state.outputParent = path;
+    saveOutputParent(path);
+    state.error = null;
+  } catch (e) {
+    state.error = errorText(e);
+  }
+  render();
 }
 
 async function start() {
@@ -324,7 +614,7 @@ async function start() {
   state.phase = "running";
   render();
   try {
-    const started = await backend.startJob(state.scan.path, settings);
+    const started = await backend.startJob(state.scan.path, settings, state.outputParent);
     const keepShots = state.job?.outputDir === started.outputDir;
     state.job = {
       outputDir: started.outputDir, scale: settings.scale, key: settingsKey(settings),
@@ -460,6 +750,39 @@ function wireControls() {
     }
   });
 
+  el.outChange.addEventListener("click", () => void chooseOutput());
+  el.outReset.addEventListener("click", () => {
+    if (busy()) return;
+    state.outputParent = null;
+    saveOutputParent(null);
+    state.error = null;
+    render();
+    el.outChange.focus();
+  });
+
+  el.histBtn.addEventListener("click", () => (state.history.open ? closeHistory() : openHistory()));
+  el.histClose.addEventListener("click", closeHistory);
+  el.histClear.addEventListener("click", () => {
+    state.history.confirm = true;
+    render();
+    el.histCancel.focus();
+  });
+  el.histCancel.addEventListener("click", () => {
+    state.history.confirm = false;
+    render();
+    el.histClear.focus();
+  });
+  el.histConfirmBtn.addEventListener("click", () => void clearHistory());
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !state.history.open) return;
+    e.preventDefault();
+    if (state.history.confirm) {
+      state.history.confirm = false;
+      render();
+      el.histClear.focus();
+    } else closeHistory();
+  });
+
   el.go.addEventListener("click", () => {
     if (state.phase === "running") void pause();
     else void start();
@@ -487,6 +810,9 @@ async function init() {
       backend.onPaused(onStopped("paused")),
       backend.onFinished(onStopped("finished")),
       backend.onJobError(onJobError),
+      backend.onHistoryChanged(() => {
+        if (state.history.open) void refreshHistory();
+      }),
       backend.onDrop((e) => {
         if (busy()) return;
         state.dropping = e.type === "over";
